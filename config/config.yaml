@@ -1,0 +1,158 @@
+# DAP Project Configuration
+# Driver Distraction and Drowsiness Detection System
+
+# Project Settings
+project:
+  name: "Driver-Distraction-Detection"
+  version: "1.0.0"
+  random_seed: 42
+
+# Data Configuration
+data:
+  raw_dir: "training_data_with_all_classes/train"
+  splits_dir: "data/splits"
+  annotated_dir: "data/annotated"
+  preprocessed_dir: "data/preprocessed"
+  
+  # Data split ratios
+  train_ratio: 0.7
+  val_ratio: 0.15
+  test_ratio: 0.15
+  
+  # Class mappings (State Farm Driver Distraction Dataset)
+  classes:
+    c0: "safe_driving"
+    c1: "texting_right"
+    c2: "phone_right"
+    c3: "texting_left"
+    c4: "phone_left"
+    c5: "radio"
+    c6: "drinking"
+    c7: "reaching_behind"
+    c8: "hair_makeup"
+    c9: "talking_passenger"
+  
+  # Image settings
+  image_size: [640, 640]
+  augmentation: true
+
+# Grounding DINO Configuration
+grounding_dino:
+  model_config: "GroundingDINO/groundingdino/config/GroundingDINO_SwinT_OGC.py"
+  checkpoint: "models/grounding_dino/groundingdino_swint_ogc.pth"
+  text_prompts:
+    - "driver . face . hands . steering wheel . phone . cup"
+  box_threshold: 0.35
+  text_threshold: 0.25
+  device: "cuda"  # or "cpu"
+
+# YOLO Configuration
+yolo:
+  model: "yolov8n.pt"  # Options: yolov8n, yolov8s, yolov8m, yolov8l, yolov8x
+  epochs: 100
+  batch_size: 16
+  img_size: 640
+  device: "0"  # GPU device, or "cpu"
+  workers: 4
+  patience: 50  # Early stopping patience
+  
+  # Training hyperparameters
+  lr0: 0.01
+  lrf: 0.01
+  momentum: 0.937
+  weight_decay: 0.0005
+  
+  # Augmentation
+  hsv_h: 0.015
+  hsv_s: 0.7
+  hsv_v: 0.4
+  degrees: 0.0
+  translate: 0.1
+  scale: 0.5
+  shear: 0.0
+  perspective: 0.0
+  flipud: 0.0
+  fliplr: 0.5
+  mosaic: 1.0
+
+# OpenPose Configuration
+openpose:
+  model_folder: "models/openpose/models"
+  model_type: "BODY_25"  # Options: BODY_25, COCO, MPI
+  net_resolution: "-1x368"
+  output_resolution: "-1x-1"
+  render_pose: 1
+  keypoint_scale: 3
+  
+  # Key landmarks for drowsiness detection
+  head_keypoints: [0, 1, 15, 16, 17, 18]  # Nose, neck, eyes, ears
+  upper_body_keypoints: [1, 2, 5, 8, 11]  # Neck, shoulders, hips
+
+# ResNet Configuration (Face/Drowsiness Detection)
+resnet:
+  architecture: "resnet50"  # Options: resnet18, resnet34, resnet50, resnet101
+  pretrained: true
+  num_classes: 3  # Alert, Drowsy, Distracted
+  
+  # Training parameters
+  epochs: 50
+  batch_size: 32
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  optimizer: "adam"  # Options: adam, sgd, adamw
+  
+  # Face detection
+  face_detection_confidence: 0.5
+  face_margin: 0.2  # Extra margin around detected face
+  
+  # Drowsiness indicators
+  eye_aspect_ratio_threshold: 0.25  # EAR threshold for closed eyes
+  yawn_threshold: 0.6
+  consecutive_frames_drowsy: 20  # Frames before drowsy alert
+
+# Pipeline Configuration
+pipeline:
+  mode: "inference"  # Options: training, inference, evaluation
+  
+  # Multi-model fusion
+  fusion_method: "weighted_average"  # Options: weighted_average, voting, max
+  model_weights:
+    yolo: 0.3
+    openpose: 0.3
+    resnet: 0.4
+  
+  # Alert thresholds
+  distraction_threshold: 0.7
+  drowsiness_threshold: 0.6
+  
+  # Real-time processing
+  fps: 30
+  enable_tracking: true
+  tracking_max_age: 30
+  tracking_min_hits: 3
+
+# Output Configuration
+output:
+  save_visualizations: true
+  save_predictions: true
+  log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  results_dir: "results"
+  
+  # Visualization settings
+  bbox_thickness: 2
+  font_scale: 0.6
+  show_confidence: true
+  show_keypoints: true
+
+# Evaluation Metrics
+evaluation:
+  metrics:
+    - "accuracy"
+    - "precision"
+    - "recall"
+    - "f1_score"
+    - "confusion_matrix"
+  
+  # Per-class evaluation
+  report_per_class: true
+  save_plots: true
