@@ -26,6 +26,21 @@ from gradcam import GradCAMExtractor, AttentionRolloutExtractor, vit_reshape_tra
 MODEL_REPO_ID = os.getenv("MODEL_REPO_ID", "")
 DEVICE = torch.device('cpu')
 
+# ── Rate limiting (anti-spam) via the shared engine ──
+# One uvicorn worker serves everyone, so cap how fast a single IP can hammer the
+# expensive inference handlers. Limits come from the central control sheet at
+# runtime, with the env values below as fallbacks; disabled if Upstash is unset.
+# Slug = full project folder name (canonical identifier across code + sheet).
+from rate_limit_engine import RateLimiter
+
+limiter = RateLimiter(
+    project="dap-ay2526-distracted-driver-detection",
+    buckets={"predict": int(os.environ.get("RATE_LIMIT_PREDICT_MAX", "20"))},
+    redis_url=os.environ.get("UPSTASH_REDIS_REST_URL", os.environ.get("UPSTASH_REDIS_URL", "")),
+    redis_token=os.environ.get("UPSTASH_REDIS_REST_TOKEN", os.environ.get("UPSTASH_REDIS_TOKEN", "")),
+    default_window=int(os.environ.get("RATE_LIMIT_WINDOW_SECONDS", "60")),
+)
+
 
 def _weight_path(filename: str) -> str:
     """Download weight file from HF Hub, or fall back to local path for dev."""
@@ -176,9 +191,11 @@ def predict_blending(img_tensor):
         raise RuntimeError("No base model predictions available for blending")
     return blended / total_weight
 
-def predict_image(image, model_selection):
+def predict_image(image, model_selection, request: gr.Request = None):
     if image is None:
         return {"No image provided": 1.0}
+    if request is not None:
+        limiter.enforce(request, "predict")
     try:
         img_tensor = transform(image).unsqueeze(0).to(DEVICE)
         if model_selection == "Vision Transformer":
@@ -217,9 +234,13 @@ def _format_prediction(probs_np, pred_idx):
     return "\n".join(lines)
 
 
-def run_gradcam(image, model_name, method, alpha):
+def run_gradcam(image, model_name, method, alpha, request: gr.Request = None):
     if image is None:
         return Image.new("RGB", (224, 224)), "Please upload an image."
+    # request is injected only when called as a top-level handler; internal calls
+    # from run_gradcam_compare pass none, so a "Compare All" click counts once.
+    if request is not None:
+        limiter.enforce(request, "predict")
     if not has_vit:
         return Image.new("RGB", (224, 224)), "ViT model is not loaded."
 
@@ -256,11 +277,13 @@ def run_gradcam(image, model_name, method, alpha):
         return Image.new("RGB", (224, 224)), f"Error: {str(e)}"
 
 
-def run_gradcam_compare(image, method, alpha):
+def run_gradcam_compare(image, method, alpha, request: gr.Request = None):
     if image is None:
         blank = Image.new("RGB", (224, 224))
         msg   = "Please upload an image."
         return blank, msg, blank, msg, blank, msg
+    if request is not None:
+        limiter.enforce(request, "predict")
 
     results = []
     for name in ["ViT", "Stacking", "Blending"]:
@@ -311,12 +334,14 @@ def _make_lime_predict_fn(model_name):
     return predict_fn
 
 
-def run_lime_compare(image, num_samples, num_features):
+def run_lime_compare(image, num_samples, num_features, request: gr.Request = None):
     """Run LIME on ViT, Stacking, and Blending and return side-by-side results."""
     if image is None:
         blank = Image.new("RGB", (224, 224))
         msg = "Please upload an image."
         return blank, msg, blank, msg, blank, msg
+    if request is not None:
+        limiter.enforce(request, "predict")
 
     model_available = {
         "ViT": has_vit,
@@ -337,9 +362,12 @@ def run_lime_compare(image, num_samples, num_features):
     return tuple(results)
 
 
-def run_lime(image, model_name, num_samples, num_features):
+def run_lime(image, model_name, num_samples, num_features, request: gr.Request = None):
     if image is None:
         return Image.new("RGB", (224, 224)), "Please upload an image."
+    # Internal calls from run_lime_compare pass no request, so "Compare All" counts once.
+    if request is not None:
+        limiter.enforce(request, "predict")
 
     model_available = {
         "ViT": has_vit, "ResNet": has_resnet, "EfficientNet": has_efficientnet,
