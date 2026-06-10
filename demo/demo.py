@@ -10,24 +10,38 @@ import gradio as gr
 import torch
 import torch.nn.functional as Fn
 import numpy as np
+import os
 from torchvision import transforms, models as tv_models
 from PIL import Image
-from pathlib import Path
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from skimage.segmentation import mark_boundaries
+from huggingface_hub import hf_hub_download
 
 from gradcam import GradCAMExtractor, AttentionRolloutExtractor, vit_reshape_transform, overlay_heatmap
 
 # ==================== Configuration ====================
 
-VIT_PATH = Path("vit_auc_cam1.pth")
-RESNET_PATH = Path("resnet50_auc_cam1.pth")
-EFFICIENTNET_PATH = Path("efficientnet_auc_cam1.pth")
-STACKING_PATH = Path("stacking_meta_learner.pth")
-BLENDING_PATH = Path("blending_weights.pth")
+MODEL_REPO_ID = os.getenv("MODEL_REPO_ID", "")
 DEVICE = torch.device('cpu')
+
+
+def _weight_path(filename: str) -> str:
+    """Download weight file from HF Hub, or fall back to local path for dev."""
+    if MODEL_REPO_ID:
+        try:
+            return hf_hub_download(repo_id=MODEL_REPO_ID, filename=filename)
+        except Exception:
+            pass
+    return filename
+
+
+VIT_PATH          = _weight_path("vit_auc_cam1.pth")
+RESNET_PATH       = _weight_path("resnet50_auc_cam1.pth")
+EFFICIENTNET_PATH = _weight_path("efficientnet_auc_cam1.pth")
+STACKING_PATH     = _weight_path("stacking_meta_learner.pth")
+BLENDING_PATH     = _weight_path("blending_weights.pth")
 
 CLASS_NAMES = {
     'c0': 'Safe Driving',
@@ -529,8 +543,8 @@ of the image to measure each region's contribution to the predicted class.
             lime_image_input = gr.Image(type="pil", label="Upload Driver Image")
             with gr.Column():
                 lime_num_samples = gr.Slider(
-                    minimum=100, maximum=1000, value=300, step=50,
-                    label="LIME Samples (higher = more stable, slower)",
+                    minimum=50, maximum=300, value=100, step=50,
+                    label="LIME Samples (higher = more stable, slower — ~10–30s on free CPU)",
                 )
                 lime_num_features = gr.Slider(
                     minimum=3, maximum=20, value=10, step=1,
